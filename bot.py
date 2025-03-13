@@ -1,117 +1,72 @@
+import telebot
 import os
+import time
 import requests
-import yt_dlp
-import instaloader
-from telegram import Update, InputFile
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+from instaloader import Instaloader, Post
 
-# Bot tokenini kiriting
-TOKEN = "7730701363:AAE4Y94RlZ3AHdzUHG_7hXP4A2hlRny5ns4 "
+TOKEN = "7730701363:AAE4Y94RlZ3AHdzUHG_7hXP4A2hlRny5ns4"
+ADMIN_ID = 6588255887  # O'zingizning Telegram ID-ingiz
+bot = telebot.TeleBot(TOKEN)
+loader = Instaloader()
 
-# Admin ID (o'zingizning Telegram ID-ingizni kiriting)
-ADMIN_ID = 6588255887
+stats = {"total_downloads": 0}
 
-# YouTube yuklash sozlamalari
-yt_opts = {
-    'format': 'best',
-    'outtmpl': '%(title)s.%(ext)s',
-}
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.reply_to(message, "Assalomu alaykum! Instagram video yuklovchi botga xush kelibsiz!\n\nVideo yuklash uchun Instagram havolasini yuboring.")
 
-# Instaloader sozlamalari
-loader = instaloader.Instaloader()
+@bot.message_handler(commands=['stats'])
+def send_stats(message):
+    if message.chat.id == ADMIN_ID:
+        bot.send_message(message.chat.id, f"📊 Statistika:\n- Jami yuklangan videolar: {stats['total_downloads']}")
+    else:
+        bot.send_message(message.chat.id, "⛔ Bu buyruq faqat admin uchun!")
 
-# Foydalanuvchilar ro‘yxati (statistika uchun)
-users = set()
+@bot.message_handler(commands=['reklama'])
+def send_advertisement(message):
+    if message.chat.id == ADMIN_ID:
+        bot.send_message(message.chat.id, "📢 Reklama matnini yuboring:")
+        bot.register_next_step_handler(message, broadcast_ad)
+    else:
+        bot.send_message(message.chat.id, "⛔ Bu buyruq faqat admin uchun!")
 
-# 🔹 /start komandasi
-async def start(update: Update, context: CallbackContext) -> None:
-    users.add(update.message.chat_id)  # Foydalanuvchini bazaga qo‘shish
-    await update.message.reply_text("👋 Assalomu alaykum! YouTube yoki Instagram linkini yuboring, men videoni yuklab beraman.")
+def broadcast_ad(message):
+    ad_text = message.text
+    for user_id in stats.get("users", []):
+        try:
+            bot.send_message(user_id, f"📢 Reklama:\n{ad_text}")
+        except:
+            continue
+    bot.send_message(ADMIN_ID, "✅ Reklama barcha foydalanuvchilarga yuborildi!")
 
-# 🔹 YouTube video yuklash
-async def download_youtube_video(update: Update, context: CallbackContext) -> None:
-    url = update.message.text
-    chat_id = update.message.chat_id
-
+@bot.message_handler(func=lambda message: message.text.startswith("https://www.instagram.com/"))
+def download_instagram_video(message):
+    url = message.text
+    bot.send_message(message.chat.id, "⏳ Videoni yuklab olish jarayoni boshlandi...")
+    
     try:
-        with yt_dlp.YoutubeDL(yt_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            video_file = f"{info['title']}.mp4"
-
-        await context.bot.send_video(chat_id=chat_id, video=open(video_file, 'rb'), caption=f"📥 Video @vide_oyuklabot orqali yuklab olindi: {info['title']}")
-        os.remove(video_file)
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ Xatolik: {str(e)}")
-
-# 🔹 Instagram video yuklash (login va parolsiz)
-async def download_instagram_video(update: Update, context: CallbackContext) -> None:
-    url = update.message.text
-    chat_id = update.message.chat_id
-
-    try:
-        shortcode = url.split("/")[-2]  # Postning shortcode'ini olish
-        post = instaloader.Post.from_shortcode(loader.context, shortcode)
-
-        if post.video_url:
-            response = requests.get(post.video_url)
-            video_file = "instagram_video.mp4"
-
-            with open(video_file, 'wb') as file:
+        shortcode = url.split("/")[-2]
+        post = Post.from_shortcode(loader.context, shortcode)
+        
+        video_url = post.video_url
+        
+        if video_url:
+            bot.send_message(message.chat.id, "📥 Video yuklanmoqda...")
+            file_name = f"{shortcode}.mp4"
+            
+            response = requests.get(video_url)
+            with open(file_name, "wb") as file:
                 file.write(response.content)
-
-            await context.bot.send_video(chat_id=chat_id, video=open(video_file, 'rb'), caption="📥 Video @vide_oyuklabot orqali yuklab olindi:")
-            os.remove(video_file)
+                
+            with open(file_name, "rb") as video:
+                bot.send_video(message.chat.id, video, caption="📌 Video @vide_oyuklabot orqali yuklandi.")
+            
+            os.remove(file_name)
+            stats["total_downloads"] += 1
+            bot.send_message(message.chat.id, "✅ Video yuklandi!")
         else:
-            await update.message.reply_text("❌ Bu postda video mavjud emas.")
-
+            bot.send_message(message.chat.id, "❌ Xatolik! Video topilmadi.")
     except Exception as e:
-        await update.message.reply_text(f"❌ Xatolik: {str(e)}")
+        bot.send_message(message.chat.id, f"❌ Xatolik yuz berdi: {str(e)}")
 
-# 🔹 Admin uchun reklama yuborish
-async def admin_broadcast(update: Update, context: CallbackContext) -> None:
-    if update.message.chat_id == ADMIN_ID:
-        msg = update.message.text.split(' ', 1)[1]
-        for user in users:
-            try:
-                await context.bot.send_message(chat_id=user, text=f"📢 Reklama: {msg}")
-            except:
-                continue
-        await update.message.reply_text("✅ Reklama barcha foydalanuvchilarga yuborildi.")
-    else:
-        await update.message.reply_text("❌ Siz admin emassiz!")
-
-# 🔹 Admin uchun statistika
-async def get_statistics(update: Update, context: CallbackContext) -> None:
-    if update.message.chat_id == ADMIN_ID:
-        await update.message.reply_text(f"📊 Bot foydalanuvchilari soni: {len(users)} ta")
-    else:
-        await update.message.reply_text("❌ Siz admin emassiz!")
-
-# 🔹 Xabarni avtomatik tekshirish
-async def handle_message(update: Update, context: CallbackContext) -> None:
-    text = update.message.text
-
-    if "youtube.com" in text or "youtu.be" in text:
-        await download_youtube_video(update, context)
-    elif "instagram.com" in text:
-        await download_instagram_video(update, context)
-    elif text.startswith("/broadcast"):
-        await admin_broadcast(update, context)
-    else:
-        await update.message.reply_text("📌 Iltimos, YouTube yoki Instagram video linkini yuboring.")
-
-# 🔹 Botni ishga tushirish
-def main() -> None:
-    app = Application.builder().token(TOKEN).build()
-
-    # Komandalarni qo‘shish
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("statistika", get_statistics))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    print("✅ Bot ishga tushdi!")
-    app.run_polling()
-
-if __name__ == '__main__':
-    main()
+bot.polling(none_stop=True)
