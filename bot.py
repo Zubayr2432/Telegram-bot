@@ -6,10 +6,10 @@ from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 
 # Bot tokenini kiriting
-TOKEN = "your token "
+TOKEN = "7730701363:AAE4Y94RlZ3AHdzUHG_7hXP4A2hlRny5ns4 "
 
 # Admin ID (o'zingizning Telegram ID-ingizni kiriting)
-ADMIN_ID = 123456789
+ADMIN_ID = 6588255887
 
 # YouTube yuklash sozlamalari
 yt_opts = {
